@@ -1091,7 +1091,11 @@ async function startGachaFx(canvas, data, opts) {
           quad(tx + nx, ty + ny, cx + nx, cy + ny, cx - nx, cy - ny, tx - nx, ty - ny, c, uv);
         } else {
           const co = Math.cos(q.rot), si = Math.sin(q.rot), hx = sx / 2, hy = sy / 2;
-          const P = [[-hx, -hy], [hx, -hy], [hx, hy], [-hx, hy]].map(([x, y]) => [cx + x * co - y * si, cy + x * si + y * co]);
+          const pv = S.render.pivot, ox = pv ? pv[0] * sx : 0, oy = pv ? pv[1] * sy : 0, A = S.render.align;
+          const P = [[-hx, -hy], [hx, -hy], [hx, hy], [-hx, hy]].map(([x0, y0]) => {
+            const x = x0 + ox, y = y0 + oy, rx = x * co - y * si, ry = x * si + y * co;
+            return A ? [cx + A[0] * rx + A[1] * ry, cy + A[2] * rx + A[3] * ry] : [cx + rx, cy + ry];
+          });
           quad(P[0][0], P[0][1], P[1][0], P[1][1], P[2][0], P[2][1], P[3][0], P[3][1], c, uv);
         }
       }
