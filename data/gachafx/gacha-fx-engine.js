@@ -674,6 +674,7 @@ async function startGachaFx(canvas, data, opts) {
   const textures = [];
   async function loadTex(url, repeat) {
     const img = new Image();
+    img.crossOrigin = "anonymous";
     img.decoding = "async";
     img.src = url;
     try {
