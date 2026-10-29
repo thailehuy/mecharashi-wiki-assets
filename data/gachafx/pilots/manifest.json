@@ -1,5 +1,27 @@
 [
  {
+  "id": "10102102",
+  "client": "global",
+  "poolKey": "Shawnee",
+  "prefab": "PilotGachaShawneeItemPrefab",
+  "systems": 9,
+  "flows": 0,
+  "card": "cards/10102102.webp",
+  "warnings": [],
+  "notes": 0
+ },
+ {
+  "id": "10103105",
+  "client": "global",
+  "poolKey": "Natalia",
+  "prefab": "PilotGachaNataliaItemPrefab",
+  "systems": 6,
+  "flows": 0,
+  "card": "cards/10103105.webp",
+  "warnings": [],
+  "notes": 1
+ },
+ {
   "id": "10103107",
   "client": "global",
   "poolKey": "RosaDiaz",
@@ -33,6 +55,17 @@
   "notes": 0
  },
  {
+  "id": "10103112",
+  "client": "global",
+  "poolKey": "AynurDerya",
+  "prefab": "PilotGachaAynurDeryaItemPrefab",
+  "systems": 5,
+  "flows": 1,
+  "card": "cards/10103112.webp",
+  "warnings": [],
+  "notes": 0
+ },
+ {
   "id": "10103113",
   "client": "global",
   "poolKey": "Eileen",
@@ -62,6 +95,17 @@
   "systems": 2,
   "flows": 1,
   "card": "cards/10103120.webp",
+  "warnings": [],
+  "notes": 0
+ },
+ {
+  "id": "10103121",
+  "client": "global",
+  "poolKey": "Diracca1",
+  "prefab": "PilotGachaDiracca1ItemPrefab",
+  "systems": 12,
+  "flows": 6,
+  "card": "cards/10103121.webp",
   "warnings": [],
   "notes": 0
  },
@@ -165,6 +209,17 @@
   "notes": 1
  },
  {
+  "id": "10103136",
+  "client": "global",
+  "poolKey": "Erisa",
+  "prefab": "PilotGachaErisaItemPrefab",
+  "systems": 6,
+  "flows": 5,
+  "card": "cards/10103136.webp",
+  "warnings": [],
+  "notes": 0
+ },
+ {
   "id": "10103137",
   "client": "global",
   "poolKey": "Fia",
@@ -183,6 +238,17 @@
   "systems": 0,
   "flows": 0,
   "card": "cards/10103138.webp",
+  "warnings": [],
+  "notes": 0
+ },
+ {
+  "id": "10103141",
+  "client": "global",
+  "poolKey": "Kelly",
+  "prefab": "PilotGachaKellyItemPrefab",
+  "systems": 6,
+  "flows": 1,
+  "card": "cards/10103141.webp",
   "warnings": [],
   "notes": 0
  },
@@ -250,7 +316,7 @@
   "flows": 2,
   "card": "cards/10103155.webp",
   "warnings": [],
-  "notes": 1
+  "notes": 2
  },
  {
   "id": "10103158",
@@ -284,6 +350,17 @@
   "card": "cards/10103162.webp",
   "warnings": [],
   "notes": 1
+ },
+ {
+  "id": "10103164",
+  "client": "cn",
+  "poolKey": "MartiniMoretti",
+  "prefab": "PilotGachaMartiniMorettiItemPrefab",
+  "systems": 8,
+  "flows": 6,
+  "card": "cards/10103164.webp",
+  "warnings": [],
+  "notes": 0
  },
  {
   "id": "10103165",
@@ -350,6 +427,28 @@
   "card": "cards/10103173.webp",
   "warnings": [],
   "notes": 1
+ },
+ {
+  "id": "10103174",
+  "client": "cn",
+  "poolKey": "HailisMill",
+  "prefab": "PilotGachaHailisMillItemPrefab",
+  "systems": 21,
+  "flows": 7,
+  "card": "cards/10103174.webp",
+  "warnings": [],
+  "notes": 0
+ },
+ {
+  "id": "10103179",
+  "client": "cn",
+  "poolKey": "LexuanZheng",
+  "prefab": "PilotGachaLexuanZhengItemPrefab",
+  "systems": 13,
+  "flows": 6,
+  "card": "cards/10103179.webp",
+  "warnings": [],
+  "notes": 0
  },
  {
   "id": "10103181",

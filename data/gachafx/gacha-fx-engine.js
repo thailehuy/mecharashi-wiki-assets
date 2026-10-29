@@ -241,7 +241,7 @@ var ParticleSim = class {
         lp = [u[0] * rr, u[1] * rr, u[2] * rr];
         dir = u;
       } else if (sh && sh.type === 10) {
-        const a = R() * Math.PI * 2, rr = Math.sqrt(lerp((1 - sh.thickness) ** 2, 1, R()));
+        const a = R() * (sh.arc != null ? sh.arc * D2R : Math.PI * 2), rr = Math.sqrt(lerp((1 - sh.thickness) ** 2, 1, R()));
         lp = [Math.cos(a) * rr * sh.radius, Math.sin(a) * rr * sh.radius, 0];
         dir = [Math.cos(a), Math.sin(a), 0];
       } else if (sh && sh.type === 5) {
@@ -520,6 +520,41 @@ void main(){
   if (uM2Rev > 0.5) m2 = 1.0 - m2;
   o = vec4(col, a * m2) * uMainColor * uCentre;
 }`;
+var FS_UI_COMMON = `#version 300 es
+precision highp float; in vec2 vUV; in vec4 vCol;
+uniform sampler2D uDist, uMain, uAlpha, uAlpha3, uGrad;
+uniform float uTime, uPower, uInt, uAll, uPA, uDMain, uDAlpha;
+uniform vec2 uMainSpeed, uDistSpeed, uDistK, uAlphaSpeed, uAlpha3Speed, uGradSpeed;
+uniform vec3 uMainColor;
+uniform vec4 uMainST, uDistST, uAlphaST, uAlpha3ST, uGradST, uAlphaSel; out vec4 o;
+void main(){
+  vec2 uv = vUV; float T = uTime;
+  vec2 d = texture(uDist, uv * uDistST.xy + uDistST.zw + T * uDistSpeed).x * uDistK;
+  float a3 = texture(uAlpha3, uv * uAlpha3ST.xy + uAlpha3ST.zw + T * uAlpha3Speed).x;
+  vec2 auv = uv * uAlphaST.xy + uAlphaST.zw + T * uAlphaSpeed;
+  if (uDAlpha > 0.5) auv += auv * d;
+  float a = texture(uAlpha, auv).x * a3;
+  vec2 muv = uv * uMainST.xy + uMainST.zw + (0.5 * T) * uMainSpeed;
+  if (uDMain > 0.5) muv += d;
+  vec4 m = texture(uMain, muv);
+  float ma = m.a * uAlphaSel.w; vec3 mc = m.rgb;
+  if (uPower != 1.0) { ma = pow(ma, uPower); mc = pow(mc, vec3(uPower)); }
+  a *= min(ma, 1.0) + dot(m.rgb, uAlphaSel.rgb);
+  if (uPA > 0.5) a *= vCol.a;
+  vec3 col = min(mc, 1.0) * uInt * vCol.rgb * uMainColor;
+  o = vec4(texture(uGrad, uv * uGradST.xy + uGradST.zw + T * uGradSpeed).rgb * col, a * uAll);
+}`;
+var FS_SHINY = `#version 300 es
+precision highp float; in vec2 vUV; in vec4 vCol; uniform sampler2D uTex; uniform vec4 uShine, uCorner; uniform float uGloss; out vec4 o;
+void main(){
+  vec4 c = texture(uTex, vUV) * vCol;
+  vec4 k = uCorner; vec2 q = vUV;
+  float p = q.x >= q.y ? k.x + q.x * (k.y - k.x) + q.y * (k.z - k.y) : k.x + q.x * (k.z - k.w) + q.y * (k.w - k.x);
+  float n = 1.0 - min(abs((p - (uShine.x * 2.0 - 0.5)) / uShine.y), 1.0);
+  float s = clamp(n / uShine.z, 0.0, 1.0);
+  s = s * s * (3.0 - 2.0 * s) * 0.5 * c.a * uShine.w;
+  o = vec4(c.rgb + s * (1.0 + uGloss * (c.rgb * 7.0 - 1.0)), c.a);
+}`;
 var FLOATS = 8;
 var FULL_UV = [0, 0, 1, 1];
 async function startGachaFx(canvas, data, opts) {
@@ -542,7 +577,7 @@ async function startGachaFx(canvas, data, opts) {
     if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p) ?? "shader \u9023\u7D50\u5931\u6557");
     return p;
   };
-  const P_BG = program(FS_BG), P_PT = program(FS_PARTICLE), P_FLOW = program(FS_FLOW), P_FLOW1 = program(FS_FLOW1), P_GEN = program(FS_GENERAL);
+  const P_BG = program(FS_BG), P_PT = program(FS_PARTICLE), P_FLOW = program(FS_FLOW), P_FLOW1 = program(FS_FLOW1), P_GEN = program(FS_GENERAL), P_UIC = program(FS_UI_COMMON), P_SHINY = program(FS_SHINY);
   const U = (p, names) => Object.fromEntries(names.map((n) => [n, gl.getUniformLocation(p, n)]));
   const uBg = U(P_BG, ["uView", "uTex"]);
   const uPt = U(P_PT, ["uView", "uTex", "uStr", "uStrA", "uRot", "uTint"]);
@@ -637,6 +672,32 @@ async function startGachaFx(canvas, data, opts) {
     "uM2ST",
     "uEdgeColor",
     "uMainColor"
+  ]);
+  const uSh = U(P_SHINY, ["uView", "uTex", "uShine", "uCorner", "uGloss"]);
+  const UIC_TEX = ["uDist", "uMain", "uAlpha", "uAlpha3", "uGrad"];
+  const uUic = U(P_UIC, [
+    "uView",
+    ...UIC_TEX,
+    "uTime",
+    "uPower",
+    "uInt",
+    "uAll",
+    "uPA",
+    "uDMain",
+    "uDAlpha",
+    "uMainSpeed",
+    "uDistSpeed",
+    "uDistK",
+    "uAlphaSpeed",
+    "uAlpha3Speed",
+    "uGradSpeed",
+    "uMainColor",
+    "uMainST",
+    "uDistST",
+    "uAlphaST",
+    "uAlpha3ST",
+    "uGradST",
+    "uAlphaSel"
   ]);
   const vbo = gl.createBuffer(), vao = gl.createVertexArray();
   gl.bindVertexArray(vao);
@@ -738,6 +799,10 @@ async function startGachaFx(canvas, data, opts) {
       const g = M.general;
       return { sim: s, kind: "general", tex: await Promise.all([g.noise?.tex, g.main, g.edge?.tex, g.mask1?.tex, g.soft?.tex, g.mask2?.tex].map(f1Tex)) };
     }
+    if (M.uiCommon) {
+      const c = M.uiCommon;
+      return { sim: s, kind: "uiCommon", tex: await Promise.all([c.distort?.tex, c.main, c.alpha?.tex, c.alpha3?.tex, c.grad?.tex].map(f1Tex)) };
+    }
     return { sim: s, kind: "plain", tex: await fxTex(M.tex) };
   }
   const flowParts = splitFlows(flowTex, (e) => e.f);
@@ -757,7 +822,11 @@ async function startGachaFx(canvas, data, opts) {
     const tint = e.kind === "flow1" || e.kind === "general" ? S.material.tint : void 0;
     scissor(S.clip);
     if (S.render.mode !== 5) {
-      if (e.kind === "general") {
+      if (e.kind === "uiCommon") {
+        gl.useProgram(P_UIC);
+        gl.uniform4f(uUic.uView, ...view);
+        uiCommonUniformsSet(S.material.uiCommon, e.tex, time2);
+      } else if (e.kind === "general") {
         gl.useProgram(P_GEN);
         gl.uniform4f(uGen.uView, ...view);
         generalUniformsSet(S.material.general, e.tex, time2);
@@ -880,7 +949,7 @@ async function startGachaFx(canvas, data, opts) {
     }
     flush();
   }
-  const QBUF = [0, 0, 0, 0, 0, 0], ABUF = [0];
+  const QBUF = [0, 0, 0, 0, 0, 0], ABUF = [0], VBUF = [0, 0, 0, 0];
   function track(arr, stride, len, time2, out) {
     const n = arr.length / stride - 1, u = time2 % len / len * n, k = Math.min(Math.floor(u), n - 1), w = u - k;
     for (let j = 0; j < stride; j++) out[j] = arr[k * stride + j] * (1 - w) + arr[(k + 1) * stride + j] * w;
@@ -904,6 +973,8 @@ async function startGachaFx(canvas, data, opts) {
     scissor(f.clip);
     gl.blendFunc(gl.SRC_ALPHA, f.blend === "alpha" ? gl.ONE_MINUS_SRC_ALPHA : gl.ONE);
     flow1UniformsSet(f, tex, time2);
+    const A = f.anim;
+    if (A?.mask1ST) gl.uniform4fv(uF1.uM1ST, track(A.mask1ST, 4, A.len, time2, VBUF));
     flowQuad(f, time2);
     gl.activeTexture(gl.TEXTURE0);
   }
@@ -948,6 +1019,34 @@ async function startGachaFx(canvas, data, opts) {
     gl.uniform1f(uGen.uSoftVal, SD?.value ?? 0);
     gl.uniform1f(uGen.uSoftRev, SD?.revert ? 1 : 0);
   }
+  function uiCommonUniformsSet(c, tex, time2) {
+    UIC_TEX.forEach((name, i) => {
+      gl.activeTexture(gl.TEXTURE0 + i);
+      gl.bindTexture(gl.TEXTURE_2D, tex[i]);
+      gl.uniform1i(uUic[name], i);
+    });
+    const D = c.distort, st = (x) => x ?? ST_ID, sp = (x) => x ?? [0, 0];
+    gl.uniform1f(uUic.uTime, time2);
+    gl.uniform4fv(uUic.uMainST, st(c.mainST));
+    gl.uniform2fv(uUic.uMainSpeed, sp(c.mainSpeed));
+    gl.uniform1f(uUic.uPower, c.power ?? 1);
+    gl.uniform1f(uUic.uInt, c.intensity ?? 1);
+    gl.uniform3fv(uUic.uMainColor, c.mainColor ?? [1, 1, 1]);
+    gl.uniform4fv(uUic.uAlphaSel, c.alphaSel ?? [0, 0, 0, 1]);
+    gl.uniform1f(uUic.uAll, c.allAlpha ?? 1);
+    gl.uniform1f(uUic.uPA, c.particleAlpha ? 1 : 0);
+    gl.uniform4fv(uUic.uDistST, st(D?.st));
+    gl.uniform2fv(uUic.uDistSpeed, sp(D?.speed));
+    gl.uniform2fv(uUic.uDistK, D?.k ?? [0, 0]);
+    gl.uniform1f(uUic.uDMain, D?.main ? 1 : 0);
+    gl.uniform1f(uUic.uDAlpha, D?.alpha ? 1 : 0);
+    gl.uniform4fv(uUic.uAlphaST, st(c.alpha?.st));
+    gl.uniform2fv(uUic.uAlphaSpeed, sp(c.alpha?.speed));
+    gl.uniform4fv(uUic.uAlpha3ST, st(c.alpha3?.st));
+    gl.uniform2fv(uUic.uAlpha3Speed, sp(c.alpha3?.speed));
+    gl.uniform4fv(uUic.uGradST, st(c.grad?.st));
+    gl.uniform2fv(uUic.uGradSpeed, sp(c.grad?.speed));
+  }
   function flow1UniformsSet(f, tex, time2) {
     FLOW1_TEX.forEach((name, i) => {
       gl.activeTexture(gl.TEXTURE0 + i);
@@ -987,6 +1086,9 @@ async function startGachaFx(canvas, data, opts) {
     scissor(f.clip);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     flowUniforms(f, t, time2, FLOW_GAIN);
+    const A = f.anim;
+    if (A?.disturbValue) gl.uniform1f(uFl.uDstVal, track(A.disturbValue, 1, A.len, time2, ABUF)[0] * FLOW_DISTURB_K);
+    if (A?.maskTO) gl.uniform4fv(uFl.uMaskTO, track(A.maskTO, 4, A.len, time2, VBUF));
     flowQuad(f, time2);
     gl.activeTexture(gl.TEXTURE0);
   }
@@ -1031,9 +1133,26 @@ async function startGachaFx(canvas, data, opts) {
     gl.blendFunc(gl.SRC_ALPHA, f.blend === "alpha" ? gl.ONE_MINUS_SRC_ALPHA : gl.ONE);
     flowQuad(f, time2);
   }
+  function drawShiny(f, tex, time2) {
+    const S = f.shiny, A = f.anim;
+    scissor(f.clip);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.uniform1i(uSh.uTex, 0);
+    const factor = A?.shiny ? track(A.shiny, 1, A.len, time2, ABUF)[0] : S.factor;
+    gl.uniform4f(uSh.uShine, factor, S.width, S.softness, S.brightness);
+    gl.uniform4fv(uSh.uCorner, S.corners);
+    gl.uniform1f(uSh.uGloss, S.gloss);
+    gl.blendFunc(gl.SRC_ALPHA, f.blend === "alpha" ? gl.ONE_MINUS_SRC_ALPHA : gl.ONE);
+    flowQuad(f, time2);
+  }
   function drawFlows(list, view, time2) {
     for (const e of list) {
-      if (e.kind === "image") {
+      if (e.kind === "image" && e.f.shiny) {
+        gl.useProgram(P_SHINY);
+        gl.uniform4f(uSh.uView, ...view);
+        drawShiny(e.f, e.tex, time2);
+      } else if (e.kind === "image") {
         gl.useProgram(P_PT);
         gl.uniform4f(uPt.uView, ...view);
         drawImage(e.f, e.tex, time2);
@@ -1101,7 +1220,7 @@ async function startGachaFx(canvas, data, opts) {
       for (const t of textures) gl.deleteTexture(t);
       gl.deleteBuffer(vbo);
       gl.deleteVertexArray(vao);
-      for (const p of [P_BG, P_PT, P_FLOW, P_FLOW1, P_GEN]) gl.deleteProgram(p);
+      for (const p of [P_BG, P_PT, P_FLOW, P_FLOW1, P_GEN, P_UIC, P_SHINY]) gl.deleteProgram(p);
       gl.getExtension("WEBGL_lose_context")?.loseContext();
     }
   };
