@@ -33,6 +33,17 @@
   "notes": 0
  },
  {
+  "id": "10103109",
+  "client": "global",
+  "poolKey": "Catherine",
+  "prefab": "PilotGachaCatherineItemPrefab",
+  "systems": 11,
+  "flows": 1,
+  "card": "cards/10103109.webp",
+  "warnings": [],
+  "notes": 3
+ },
+ {
   "id": "10103110",
   "client": "global",
   "poolKey": "Hong",
@@ -154,6 +165,17 @@
   "notes": 1
  },
  {
+  "id": "10103127",
+  "client": "global",
+  "poolKey": "Arthur",
+  "prefab": "PilotGachaArthurItemPrefab",
+  "systems": 11,
+  "flows": 2,
+  "card": "cards/10103127.webp",
+  "warnings": [],
+  "notes": 1
+ },
+ {
   "id": "10103129",
   "client": "cn",
   "poolKey": "MaatSharif",
@@ -242,6 +264,17 @@
   "notes": 0
  },
  {
+  "id": "10103139",
+  "client": "global",
+  "poolKey": "MatildaRossi",
+  "prefab": "PilotGachaMatildaRossiItemPrefab",
+  "systems": 19,
+  "flows": 19,
+  "card": "cards/10103139.webp",
+  "warnings": [],
+  "notes": 0
+ },
+ {
   "id": "10103141",
   "client": "global",
   "poolKey": "Kelly",
@@ -297,6 +330,17 @@
   "notes": 0
  },
  {
+  "id": "10103150",
+  "client": "global",
+  "poolKey": "AyanamiRei",
+  "prefab": "PilotGachaAyanamiReiItemPrefab",
+  "systems": 11,
+  "flows": 2,
+  "card": "cards/10103150.webp",
+  "warnings": [],
+  "notes": 1
+ },
+ {
   "id": "10103152",
   "client": "global",
   "poolKey": "Fregata",
@@ -306,6 +350,17 @@
   "card": "cards/10103152.webp",
   "warnings": [],
   "notes": 0
+ },
+ {
+  "id": "10103153",
+  "client": "global",
+  "poolKey": "Paloma",
+  "prefab": "PilotGachaPalomaItemPrefab",
+  "systems": 6,
+  "flows": 7,
+  "card": "cards/10103153.webp",
+  "warnings": [],
+  "notes": 1
  },
  {
   "id": "10103155",
@@ -319,6 +374,17 @@
   "notes": 2
  },
  {
+  "id": "10103157",
+  "client": "global",
+  "poolKey": "SapientiaCognitonis",
+  "prefab": "PilotGachaSapientiaCognitonisItemPrefab",
+  "systems": 21,
+  "flows": 2,
+  "card": "cards/10103157.webp",
+  "warnings": [],
+  "notes": 3
+ },
+ {
   "id": "10103158",
   "client": "global",
   "poolKey": "WyattMorgan",
@@ -326,6 +392,17 @@
   "systems": 13,
   "flows": 0,
   "card": "cards/10103158.webp",
+  "warnings": [],
+  "notes": 2
+ },
+ {
+  "id": "10103159",
+  "client": "global",
+  "poolKey": "AdeleMartin",
+  "prefab": "PilotGachaAdeleMartinItemPrefab",
+  "systems": 12,
+  "flows": 9,
+  "card": "cards/10103159.webp",
   "warnings": [],
   "notes": 2
  },
@@ -339,6 +416,17 @@
   "card": "cards/10103160.webp",
   "warnings": [],
   "notes": 1
+ },
+ {
+  "id": "10103161",
+  "client": "global",
+  "poolKey": "ZoeySteele",
+  "prefab": "PilotGachaZoeySteeleItemPrefab",
+  "systems": 14,
+  "flows": 4,
+  "card": "cards/10103161.webp",
+  "warnings": [],
+  "notes": 0
  },
  {
   "id": "10103162",

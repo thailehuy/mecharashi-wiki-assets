@@ -195,8 +195,12 @@ var ParticleSim = class {
   t = 0;
   /** startDelay 還剩幾秒：等的時候整個系統停住（t 不走、不發射） */
   wait;
+  /** 被片段關掉的時候 false（sys.active，見 setActive） */
+  on = true;
+  /** 這一格系統原點的畫布座標（sys.pos，被 TweenPos2 平移時引擎每格改，見 sys.move） */
+  origin;
   emitAcc = 0;
-  bursts;
+  bursts = [];
   rand;
   perlin;
   orbitalScale;
@@ -207,10 +211,29 @@ var ParticleSim = class {
     this.perlin = perlin;
     this.orbitalScale = opts.orbitalScale ?? ORBITAL_RAD;
     this.simSpeed = opts.honorSimSpeed ? sys.simSpeed || 1 : 1;
-    this.bursts = (sys.emission?.bursts ?? []).map((b) => ({ time: b.time, next: b.time, done: 0, burst: b }));
-    const d = sys.delay;
-    this.wait = d ? Math.max(0, evalMinMax(d, 0, d.mode === 3 ? rand() : 0)) : 0;
-    if (sys.prewarm) for (let i = 0; i < Math.ceil(sys.duration * 30); i++) this.update(1 / 30);
+    this.origin = sys.pos;
+    this.wait = 0;
+    this.start();
+  }
+  /** 從頭播：延遲、burst、預熱都重來（建構時與 setActive 打開時） */
+  start() {
+    const S = this.sys;
+    this.t = 0;
+    this.emitAcc = 0;
+    this.bursts = (S.emission?.bursts ?? []).map((b) => ({ time: b.time, next: b.time, done: 0, burst: b }));
+    const d = S.delay;
+    this.wait = d ? Math.max(0, evalMinMax(d, 0, d.mode === 3 ? this.rand() : 0)) : 0;
+    if (S.prewarm) for (let i = 0; i < Math.ceil(S.duration * 30); i++) this.update(1 / 30);
+  }
+  /**
+   * 片段開關 GameObject（sys.active，10-29 起）：關掉時粒子與拖尾清掉、不再跑；再打開時從頭播（Unity 的 OnEnable＋playOnAwake）
+   */
+  setActive(on) {
+    if (on === this.on) return;
+    this.on = on;
+    this.parts.length = 0;
+    this.orphans.length = 0;
+    if (on) this.start();
   }
   /** 丟掉年齡超過拖尾壽命的點（最舊的在後面） */
   trimTrail(T) {
@@ -286,6 +309,7 @@ var ParticleSim = class {
     }
   }
   update(dt) {
+    if (!this.on) return;
     const S = this.sys;
     dt *= this.simSpeed;
     if (this.wait > 0) {
@@ -432,20 +456,20 @@ void main(){ vec2 uv = vUV - 0.5; float c = cos(uRot), s = sin(uRot); uv = vec2(
 var FS_FLOW = `#version 300 es
 precision highp float; in vec2 vUV; in vec4 vCol;
 uniform sampler2D uMain, uDst, uMask; uniform float uTime, uMainValue, uDstVal, uVRepeat, uRepeatU, uMaskSoft, uMaskRev, uMaskDst;
-uniform vec2 uDstFlow, uMainFlow, uMainRot, uMaskRot; uniform vec4 uMainTO, uDstTO, uMainST, uMaskST, uMaskTO; out vec4 o;
+uniform vec2 uDstFlow, uMainFlow, uMainRot, uMaskRot, uDstAxis; uniform vec4 uMainTO, uDstTO, uMainST, uDstST, uMaskST, uMaskTO; out vec4 o;
 vec2 rot(vec2 p, vec2 r){ return vec2(r.x * p.x + r.y * p.y, r.x * p.y - r.y * p.x) + (0.5 - vec2(r.x + r.y, r.x - r.y) * 0.5); }
 vec2 to(vec2 p, vec4 t){ return p * t.xy + ((t.zw - 0.5) * t.xy + 0.5); }
 void main(){
-  float d = texture(uDst, to(rot(vUV, uMainRot) + uTime * uDstFlow, uDstTO)).r;
+  float d = texture(uDst, to(rot(vUV * uDstST.xy + uDstST.zw, uMainRot) + uTime * uDstFlow, uDstTO)).r;
   float dx = (d - 0.5) * uDstVal;
   vec2 muv = rot(vUV * uMainST.xy + uMainST.zw, uMainRot);
-  muv.x += dx;
+  muv += uDstAxis * dx;
   muv = to(muv + uTime * uMainFlow, uMainTO);
   muv.x = uRepeatU > 0.5 ? muv.x : clamp(muv.x, 0.0, 1.0);
   muv.y = uVRepeat > 0.5 ? fract(muv.y) : clamp(muv.y, 0.0, 1.0);
   vec4 m = texture(uMain, muv);
   vec2 kuv = rot(vUV * uMaskST.xy + uMaskST.zw, uMaskRot);
-  if (uMaskDst > 0.5) kuv.x += dx;
+  if (uMaskDst > 0.5) kuv += uDstAxis * dx;
   vec4 k = texture(uMask, to(kuv, uMaskTO));
   float s = clamp((k.r * k.a - uMaskSoft) / (1.0 - 2.0 * uMaskSoft), 0.0, 1.0);
   s = s * s * (3.0 - 2.0 * s);
@@ -597,12 +621,14 @@ async function startGachaFx(canvas, data, opts) {
     "uMainTO",
     "uDstTO",
     "uMainST",
+    "uDstST",
     "uMaskST",
     "uMaskTO",
     "uMaskRot",
     "uMaskSoft",
     "uMaskRev",
-    "uMaskDst"
+    "uMaskDst",
+    "uDstAxis"
   ]);
   const FLOW1_TEX = ["uMain", "uColor", "uDst", "uDis", "uDisMask", "uMask1", "uMask2"];
   const uF1 = U(P_FLOW1, [
@@ -867,7 +893,7 @@ async function startGachaFx(canvas, data, opts) {
         }
         sx = Math.min(sx * UNIT, maxPx);
         sy = Math.min(sy * UNIT, maxPx);
-        const cx = S.pos[0] + q.pos[0] * UNIT, cy = S.pos[1] + q.pos[1] * UNIT;
+        const cx = sim.origin[0] + q.pos[0] * UNIT, cy = sim.origin[1] + q.pos[1] * UNIT;
         const uv = UV && q.uvr ? uvRect(UV, uvFrame(UV, q.age, q.life, q.uvr)) : FULL_UV;
         if (S.render.mode === 1) {
           const vx = q.vel3[0], vy = q.vel3[1], sp = Math.hypot(vx, vy);
@@ -921,9 +947,10 @@ async function startGachaFx(canvas, data, opts) {
       const size = q.size * (Z ? evalMinMax(Z.x, a, q.r[1]) : 1);
       const lc = evalMinMaxGradient(T.colorOverLifetime, a, tr.r);
       const P = [];
-      if (!dead2) P.push([S.pos[0] + q.pos[0] * UNIT, S.pos[1] + q.pos[1] * UNIT, now]);
+      const O = sim.origin;
+      if (!dead2) P.push([O[0] + q.pos[0] * UNIT, O[1] + q.pos[1] * UNIT, now]);
       for (const p of tr.pts) {
-        const x = S.pos[0] + p[0] * UNIT, y = S.pos[1] + p[1] * UNIT, last2 = P[P.length - 1];
+        const x = O[0] + p[0] * UNIT, y = O[1] + p[1] * UNIT, last2 = P[P.length - 1];
         if (!last2 || Math.hypot(x - last2[0], y - last2[1]) > 1e-3) P.push([x, y, p[3]]);
       }
       const n = P.length;
@@ -1084,8 +1111,8 @@ async function startGachaFx(canvas, data, opts) {
   }
   function drawFlow(f, t, time2) {
     scissor(f.clip);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-    flowUniforms(f, t, time2, FLOW_GAIN);
+    gl.blendFunc(gl.SRC_ALPHA, f.blend === "alpha" ? gl.ONE_MINUS_SRC_ALPHA : gl.ONE);
+    flowUniforms(f, t, time2, f.blend === "alpha" ? 1 : FLOW_GAIN);
     const A = f.anim;
     if (A?.disturbValue) gl.uniform1f(uFl.uDstVal, track(A.disturbValue, 1, A.len, time2, ABUF)[0] * FLOW_DISTURB_K);
     if (A?.maskTO) gl.uniform4fv(uFl.uMaskTO, track(A.maskTO, 4, A.len, time2, VBUF));
@@ -1111,6 +1138,8 @@ async function startGachaFx(canvas, data, opts) {
     gl.uniform4fv(uFl.uDstTO, f.disturbTO);
     const mr = f.mainRotate ?? 0, K = f.mask, kr = K?.rotate ?? 0;
     gl.uniform4fv(uFl.uMainST, f.mainST ?? ST_ID);
+    gl.uniform4fv(uFl.uDstST, f.disturbST ?? ST_ID);
+    gl.uniform2f(uFl.uDstAxis, f.disturbV ? 0 : 1, f.disturbV ? 1 : 0);
     gl.uniform2f(uFl.uMainRot, Math.cos(mr), Math.sin(mr));
     gl.uniform2f(uFl.uMainFlow, f.mainFlow?.[0] ?? 0, f.mainFlow?.[1] ?? 0);
     gl.uniform1f(uFl.uRepeatU, f.mainRepeatU ? 1 : 0);
@@ -1173,7 +1202,19 @@ async function startGachaFx(canvas, data, opts) {
     const dt = Math.min((now - last) / 1e3, 1 / 20);
     last = now;
     time += dt;
-    for (const s of sims) s.update(dt);
+    for (const s of sims) {
+      const A = s.sys.active;
+      if (A) {
+        const p = time % A.len;
+        s.setActive(A.on.some(([a, b]) => p >= a && p < b));
+      }
+      const mv = s.sys.move;
+      if (mv) {
+        const d = track(mv.d, 2, mv.len, time, VBUF);
+        s.origin = [s.sys.pos[0] + d[0], s.sys.pos[1] + d[1]];
+      }
+      s.update(dt);
+    }
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.clearColor(0, 0, 0, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
