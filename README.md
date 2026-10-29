@@ -10,3 +10,8 @@ folders; the wiki's `build_pages.py` reads this repo's file listing to pick link
 so it expects to find a checkout at `../mecharashi-wiki-assets` when run locally.
 
 Pushing to `main` deploys via `.github/workflows/deploy.yml`.
+
+`data/gachafx/` holds the animated mech recruitment banners: per pool (`<wap>` = mech ID) the effect
+data `<wap>.json`, the illustration `cards/<wap>.webp`, the shared effect textures in `fx/`, a
+`manifest.json` and the WebGL player `gacha-fx-engine.js`. Regenerate the whole folder with the
+wiki's `scripts/build_gacha_fx.py`.
