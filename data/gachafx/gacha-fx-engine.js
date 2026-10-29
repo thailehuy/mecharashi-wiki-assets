@@ -199,6 +199,9 @@ var ParticleSim = class {
   on = true;
   /** 這一格系統原點的畫布座標（sys.pos，被 TweenPos2 平移時引擎每格改，見 sys.move） */
   origin;
+  /** 這一格發射用的位移（模擬單位）與旋轉（sys.emitter，world 空間的系統被片段移動時引擎每格改；預設 0 與 sys.rot） */
+  emitOff = [0, 0, 0];
+  emitRot;
   emitAcc = 0;
   bursts = [];
   rand;
@@ -212,6 +215,7 @@ var ParticleSim = class {
     this.orbitalScale = opts.orbitalScale ?? ORBITAL_RAD;
     this.simSpeed = opts.honorSimSpeed ? sys.simSpeed || 1 : 1;
     this.origin = sys.pos;
+    this.emitRot = sys.rot;
     this.wait = 0;
     this.start();
   }
@@ -281,9 +285,10 @@ var ParticleSim = class {
         lp = [p[0] + ox, p[1] + oy, p[2] + oz];
         dir = rotEuler(dir, rx, ry, rz);
       }
-      const sc = S.scale;
-      lp = rotQuat([lp[0] * sc[0], lp[1] * sc[1], lp[2] * sc[2]], S.rot);
-      dir = rotQuat(dir, S.rot);
+      const sc = S.scale, eo = this.emitOff;
+      lp = rotQuat([lp[0] * sc[0], lp[1] * sc[1], lp[2] * sc[2]], this.emitRot);
+      lp = [lp[0] + eo[0], lp[1] + eo[1], lp[2] + eo[2]];
+      dir = rotQuat(dir, this.emitRot);
       const vel = [dir[0] * speed, dir[1] * speed, dir[2] * speed];
       let trail;
       if (S.trail && R() < S.trail.ratio) {
@@ -976,7 +981,7 @@ async function startGachaFx(canvas, data, opts) {
     }
     flush();
   }
-  const QBUF = [0, 0, 0, 0, 0, 0], ABUF = [0], VBUF = [0, 0, 0, 0];
+  const QBUF = [0, 0, 0, 0, 0, 0], ABUF = [0], VBUF = [0, 0, 0, 0], EBUF = [0, 0, 0, 0, 0, 0];
   function track(arr, stride, len, time2, out) {
     const n = arr.length / stride - 1, u = time2 % len / len * n, k = Math.min(Math.floor(u), n - 1), w = u - k;
     for (let j = 0; j < stride; j++) out[j] = arr[k * stride + j] * (1 - w) + arr[(k + 1) * stride + j] * w;
@@ -1158,7 +1163,7 @@ async function startGachaFx(canvas, data, opts) {
     gl.uniform1f(uPt.uStr, f.strength);
     gl.uniform1f(uPt.uStrA, 1);
     gl.uniform1f(uPt.uRot, 0);
-    gl.uniform4fv(uPt.uTint, WHITE2);
+    gl.uniform4fv(uPt.uTint, f.tint ?? WHITE2);
     gl.blendFunc(gl.SRC_ALPHA, f.blend === "alpha" ? gl.ONE_MINUS_SRC_ALPHA : gl.ONE);
     flowQuad(f, time2);
   }
@@ -1212,6 +1217,12 @@ async function startGachaFx(canvas, data, opts) {
       if (mv) {
         const d = track(mv.d, 2, mv.len, time, VBUF);
         s.origin = [s.sys.pos[0] + d[0], s.sys.pos[1] + d[1]];
+      }
+      const em = s.sys.emitter;
+      if (em) {
+        const e = track(em.d, 6, em.len, time, EBUF), k = 1 / Math.hypot(e[2], e[3], e[4], e[5]);
+        s.emitOff = [e[0] / UNIT, e[1] / UNIT, 0];
+        s.emitRot = [e[2] * k, e[3] * k, e[4] * k, e[5] * k];
       }
       s.update(dt);
     }

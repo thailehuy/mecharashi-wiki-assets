@@ -99,6 +99,17 @@
   "notes": 0
  },
  {
+  "id": "10103119",
+  "client": "global",
+  "poolKey": "Sylvie",
+  "prefab": "PilotGachaSylvieItemPrefab",
+  "systems": 4,
+  "flows": 4,
+  "card": "cards/10103119.webp",
+  "warnings": [],
+  "notes": 0
+ },
+ {
   "id": "10103120",
   "client": "global",
   "poolKey": "Seven",
@@ -218,6 +229,17 @@
   "card": "cards/10103133.webp",
   "warnings": [],
   "notes": 3
+ },
+ {
+  "id": "10103134",
+  "client": "global",
+  "poolKey": "Ophelia",
+  "prefab": "PilotGachaOpheliaItemPrefab",
+  "systems": 15,
+  "flows": 15,
+  "card": "cards/10103134.webp",
+  "warnings": [],
+  "notes": 0
  },
  {
   "id": "10103135",
@@ -528,6 +550,17 @@
   "notes": 0
  },
  {
+  "id": "10103175",
+  "client": "cn",
+  "poolKey": "NiallQuenstedt",
+  "prefab": "PilotGachaNiallQuenstedtItemPrefab",
+  "systems": 26,
+  "flows": 6,
+  "card": "cards/10103175.webp",
+  "warnings": [],
+  "notes": 0
+ },
+ {
   "id": "10103179",
   "client": "cn",
   "poolKey": "LexuanZheng",
@@ -557,6 +590,17 @@
   "systems": 18,
   "flows": 1,
   "card": "cards/10103182.webp",
+  "warnings": [],
+  "notes": 1
+ },
+ {
+  "id": "10103183",
+  "client": "cn",
+  "poolKey": "SylarValentina",
+  "prefab": "PilotGachaSylarValentinaItemPrefab",
+  "systems": 20,
+  "flows": 0,
+  "card": "cards/10103183.webp",
   "warnings": [],
   "notes": 1
  },
