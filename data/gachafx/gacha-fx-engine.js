@@ -29,11 +29,18 @@ function flow1Uniforms(f) {
     dissolveRev: s?.revert ? 1 : 0,
     dissolveC: 2 * (0.55 - 1.05 * (s?.value ?? 0)),
     dissolveSoft: s?.softness ?? 0,
-    mainValue: f.mainValue
+    mainValue: f.mainValue,
+    tex2I: f.main2?.intensity ?? 0,
+    tex2Pow: f.main2?.pow ?? 1,
+    tex2Flow: f.main2?.flow ?? [0, 0],
+    tex2TO: f.main2?.to ?? TO_ID,
+    tex2ST: f.main2?.st ?? TO_ID
   };
 }
 var isFlow1 = (f) => f.shader === "flow1";
 var isImage = (f) => f.shader === "alpha";
+var isSpeedLine = (f) => f.shader === "speedLine";
+var isUICommon = (f) => f.shader === "uiCommon";
 function splitFlows(items, at) {
   const out = { under: [], over: [], before: [] };
   for (const x of items) {
@@ -44,9 +51,87 @@ function splitFlows(items, at) {
   }
   return out;
 }
+var lerp = (a, b, t) => a + (b - a) * t;
+var clamp01 = (x) => Math.min(1, Math.max(0, x));
+function radialCut(xy, fill, invert, corner) {
+  if (fill < 1e-3) return false;
+  if ((corner & 1) === 1) invert = !invert;
+  if (!invert && fill > 0.999) return true;
+  let angle = clamp01(fill);
+  if (invert) angle = 1 - angle;
+  angle *= Math.PI / 2;
+  let cos = Math.cos(angle), sin = Math.sin(angle);
+  const i0 = corner, i1 = (corner + 1) % 4, i2 = (corner + 2) % 4, i3 = (corner + 3) % 4;
+  if ((corner & 1) === 1) {
+    if (sin > cos) {
+      cos /= sin;
+      sin = 1;
+      if (invert) {
+        xy[i1][0] = lerp(xy[i0][0], xy[i2][0], cos);
+        xy[i2][0] = xy[i1][0];
+      }
+    } else if (cos > sin) {
+      sin /= cos;
+      cos = 1;
+      if (!invert) {
+        xy[i2][1] = lerp(xy[i0][1], xy[i2][1], sin);
+        xy[i3][1] = xy[i2][1];
+      }
+    } else {
+      cos = 1;
+      sin = 1;
+    }
+    if (!invert) xy[i3][0] = lerp(xy[i0][0], xy[i2][0], cos);
+    else xy[i1][1] = lerp(xy[i0][1], xy[i2][1], sin);
+  } else {
+    if (cos > sin) {
+      sin /= cos;
+      cos = 1;
+      if (!invert) {
+        xy[i1][1] = lerp(xy[i0][1], xy[i2][1], sin);
+        xy[i2][1] = xy[i1][1];
+      }
+    } else if (sin > cos) {
+      cos /= sin;
+      sin = 1;
+      if (invert) {
+        xy[i2][0] = lerp(xy[i0][0], xy[i2][0], cos);
+        xy[i3][0] = xy[i2][0];
+      }
+    } else {
+      cos = 1;
+      sin = 1;
+    }
+    if (invert) xy[i3][1] = lerp(xy[i0][1], xy[i2][1], sin);
+    else xy[i1][0] = lerp(xy[i0][0], xy[i2][0], cos);
+  }
+  return true;
+}
+function fillQuads(F, amount) {
+  if (amount < 1e-3) return [];
+  let x0 = 0, y0 = 0, x1 = 1, y1 = 1;
+  if (F.method === 0) {
+    if (F.origin === 1) x0 = 1 - amount;
+    else x1 = amount;
+  } else if (F.method === 1) {
+    if (F.origin === 1) y0 = 1 - amount;
+    else y1 = amount;
+  }
+  if (F.method !== 4 || amount >= 1) return [[x0, y0, x0, y1, x1, y1, x1, y0]];
+  const out = [];
+  for (let corner = 0; corner < 4; corner++) {
+    const fx0 = corner < 2 ? 0 : 0.5, fx1 = corner < 2 ? 0.5 : 1;
+    const fy0 = corner === 0 || corner === 3 ? 0 : 0.5, fy1 = corner === 0 || corner === 3 ? 0.5 : 1;
+    const xy = [[fx0, fy0], [fx0, fy1], [fx1, fy1], [fx1, fy0]];
+    const k = (corner + F.origin) % 4;
+    const val = F.clockwise ? amount * 4 - k : amount * 4 - (3 - k);
+    if (radialCut(xy, clamp01(val), F.clockwise, (corner + 2) % 4)) out.push(xy.flat());
+  }
+  return out;
+}
 
 // ../4_source-code/engine/gachaFxSim.ts
-var lerp = (a, b, t) => a + (b - a) * t;
+var lerp2 = (a, b, t) => a + (b - a) * t;
 function evalCurve(keys, t) {
   if (!keys || !keys.length) return 1;
   if (t <= keys[0][0]) return keys[0][1];
@@ -73,9 +158,9 @@ function evalMinMax(c, t, r) {
     case 1:
       return c.scalar * evalCurve(c.maxCurve, t);
     case 2:
-      return lerp((c.minScalar ?? c.scalar) * evalCurve(c.minCurve, t), c.scalar * evalCurve(c.maxCurve, t), r);
+      return lerp2((c.minScalar ?? c.scalar) * evalCurve(c.minCurve, t), c.scalar * evalCurve(c.maxCurve, t), r);
     case 3:
-      return lerp(c.minScalar ?? 0, c.scalar, r);
+      return lerp2(c.minScalar ?? 0, c.scalar, r);
     default:
       return c.scalar;
   }
@@ -97,7 +182,7 @@ function evalGradient(g, t) {
   return [pickKeys(g.colors, t, 1, fixed), pickKeys(g.colors, t, 2, fixed), pickKeys(g.colors, t, 3, fixed), pickKeys(g.alphas, t, 1, fixed)];
 }
 var WHITE = [1, 1, 1, 1];
-var lerp4 = (a, b, r) => [lerp(a[0], b[0], r), lerp(a[1], b[1], r), lerp(a[2], b[2], r), lerp(a[3], b[3], r)];
+var lerp4 = (a, b, r) => [lerp2(a[0], b[0], r), lerp2(a[1], b[1], r), lerp2(a[2], b[2], r), lerp2(a[3], b[3], r)];
 function evalMinMaxGradient(g, t, r) {
   if (!g) return WHITE;
   const max = g.maxGradient, min = g.minGradient;
@@ -117,9 +202,13 @@ function evalMinMaxGradient(g, t, r) {
   }
 }
 var uvFrameCount = (uv) => uv.animationType === 1 ? uv.tilesX : uv.tilesX * uv.tilesY;
-function uvFrame(uv, age, life, r) {
+var speedT = (range, sp) => {
+  const [lo, hi] = range;
+  return hi > lo ? Math.min(1, Math.max(0, (sp - lo) / (hi - lo))) : 0;
+};
+function uvFrame(uv, age, life, r, sp = 0) {
   const n = uvFrameCount(uv);
-  const t = uv.timeMode === 2 ? age * (uv.fps ?? 0) / n : evalMinMax(uv.frameOverTime, age / life, r[0]) * (uv.cycles ?? 1);
+  const t = uv.timeMode === 2 ? age * (uv.fps ?? 0) / n : uv.timeMode === 1 ? evalMinMax(uv.frameOverTime, speedT(uv.speedRange ?? [0, 1], sp), r[0]) : evalMinMax(uv.frameOverTime, age / life, r[0]) * (uv.cycles ?? 1);
   const x = evalMinMax(uv.startFrame, 0, r[1]) + t;
   const k = Math.min(Math.floor((x - Math.floor(x)) * n), n - 1);
   if (uv.animationType !== 1) return k;
@@ -179,9 +268,9 @@ function makePerlin(rand) {
     z -= Math.floor(z);
     const u = fade(x), v = fade(y), w = fade(z);
     const A = P[X] + Y, AA = P[A] + Z, AB = P[A + 1] + Z, B = P[X + 1] + Y, BA = P[B] + Z, BB = P[B + 1] + Z;
-    return lerp(
-      lerp(lerp(grad3(P[AA] & 15, x, y, z), grad3(P[BA] & 15, x - 1, y, z), u), lerp(grad3(P[AB] & 15, x, y - 1, z), grad3(P[BB] & 15, x - 1, y - 1, z), u), v),
-      lerp(lerp(grad3(P[AA + 1] & 15, x, y, z - 1), grad3(P[BA + 1] & 15, x - 1, y, z - 1), u), lerp(grad3(P[AB + 1] & 15, x, y - 1, z - 1), grad3(P[BB + 1] & 15, x - 1, y - 1, z - 1), u), v),
+    return lerp2(
+      lerp2(lerp2(grad3(P[AA] & 15, x, y, z), grad3(P[BA] & 15, x - 1, y, z), u), lerp2(grad3(P[AB] & 15, x, y - 1, z), grad3(P[BB] & 15, x - 1, y - 1, z), u), v),
+      lerp2(lerp2(grad3(P[AA + 1] & 15, x, y, z - 1), grad3(P[BA + 1] & 15, x - 1, y, z - 1), u), lerp2(grad3(P[AB + 1] & 15, x, y - 1, z - 1), grad3(P[BB + 1] & 15, x - 1, y - 1, z - 1), u), v),
       w
     );
   };
@@ -254,7 +343,7 @@ var ParticleSim = class {
       let lp = [0, 0, 0];
       let dir = randUnit(R);
       if (sh && (sh.type === 4 || sh.type === 8)) {
-        const a = R() * Math.PI * 2, rr = Math.sqrt(lerp((1 - sh.thickness) ** 2, 1, R()));
+        const a = R() * Math.PI * 2, rr = Math.sqrt(lerp2((1 - sh.thickness) ** 2, 1, R()));
         const px = Math.cos(a) * rr, py = Math.sin(a) * rr;
         lp = [px * sh.radius, py * sh.radius, sh.type === 8 ? R() * sh.length : 0];
         const tan = Math.tan(sh.angle * D2R);
@@ -264,11 +353,11 @@ var ParticleSim = class {
           lp[1] += dir[1] * lp[2];
         }
       } else if (sh && sh.type === 0) {
-        const u = randUnit(R), rr = sh.radius * Math.cbrt(lerp((1 - sh.thickness) ** 3, 1, R()));
+        const u = randUnit(R), rr = sh.radius * Math.cbrt(lerp2((1 - sh.thickness) ** 3, 1, R()));
         lp = [u[0] * rr, u[1] * rr, u[2] * rr];
         dir = u;
       } else if (sh && sh.type === 10) {
-        const a = R() * (sh.arc != null ? sh.arc * D2R : Math.PI * 2), rr = Math.sqrt(lerp((1 - sh.thickness) ** 2, 1, R()));
+        const a = R() * (sh.arc != null ? sh.arc * D2R : Math.PI * 2), rr = Math.sqrt(lerp2((1 - sh.thickness) ** 2, 1, R()));
         lp = [Math.cos(a) * rr * sh.radius, Math.sin(a) * rr * sh.radius, 0];
         dir = [Math.cos(a), Math.sin(a), 0];
       } else if (sh && sh.type === 5) {
@@ -278,7 +367,7 @@ var ParticleSim = class {
       if (sh) {
         if (sh.randomDir) {
           const d = dir;
-          dir = norm3([0, 1, 2].map((i) => lerp(d[i], randUnit(R)[i], sh.randomDir)));
+          dir = norm3([0, 1, 2].map((i) => lerp2(d[i], randUnit(R)[i], sh.randomDir)));
         }
         const [sx, sy, sz] = sh.scale, [rx, ry, rz] = sh.rotation, [ox, oy, oz] = sh.position;
         const p = rotEuler([lp[0] * sx, lp[1] * sy, lp[2] * sz], rx, ry, rz);
@@ -293,7 +382,7 @@ var ParticleSim = class {
       let trail;
       if (S.trail && R() < S.trail.ratio) {
         const T = S.trail, LT = T.lifetime;
-        const lt = LT.mode === 2 ? lerp(LT.scalar * evalCurve(LT.minCurve, tn), LT.scalar * evalCurve(LT.maxCurve, tn), R()) : evalMinMax(LT, tn, R());
+        const lt = LT.mode === 2 ? lerp2(LT.scalar * evalCurve(LT.minCurve, tn), LT.scalar * evalCurve(LT.maxCurve, tn), R()) : evalMinMax(LT, tn, R());
         const k2 = lt * (T.sizeAffectsLifetime ? size * sc[0] : 1);
         trail = { pts: [[lp[0], lp[1], lp[2], this.t]], life: Math.max(Math.max(life, 1e-3) * k2, 1e-3), r: R() };
       }
@@ -355,7 +444,7 @@ var ParticleSim = class {
       if (L) {
         const lim = evalMinMax(L.magnitude, a, q.r[3]), sp = Math.hypot(...q.vel);
         if (sp > lim && sp > 0) {
-          const k = 1 - Math.pow(1 - L.dampen, dt * 30), s = lerp(1, lim / sp, k);
+          const k = 1 - Math.pow(1 - L.dampen, dt * 30), s = lerp2(1, lim / sp, k);
           q.vel = [q.vel[0] * s, q.vel[1] * s, q.vel[2] * s];
         }
       }
@@ -401,7 +490,7 @@ var ParticleSim = class {
         if (L) {
           const lim = evalMinMax(L.magnitude, a, q.r[3]), sp = Math.hypot(...mv);
           if (sp > lim && sp > 0) {
-            const s = lerp(1, lim / sp, 1 - Math.pow(1 - L.dampen, dt * 30));
+            const s = lerp2(1, lim / sp, 1 - Math.pow(1 - L.dampen, dt * 30));
             mv = [mv[0] * s, mv[1] * s, mv[2] * s];
           }
         }
@@ -414,11 +503,7 @@ var ParticleSim = class {
         this.trimTrail(T);
       }
       if (RM) q.rot -= evalMinMax(RM, a, q.r[2]) * dt;
-      if (RS) {
-        const [lo, hi] = RS.range, sp = Math.hypot(...q.vel3);
-        const t = hi > lo ? Math.min(1, Math.max(0, (sp - lo) / (hi - lo))) : 0;
-        q.rot -= evalMinMax(RS.curve, t, q.r[2]) * dt;
-      }
+      if (RS) q.rot -= evalMinMax(RS.curve, speedT(RS.range, Math.hypot(...q.vel3)), q.r[2]) * dt;
     }
     const E = S.emission;
     if (!E || !(S.looping || this.t <= dur)) return;
@@ -483,10 +568,10 @@ void main(){
 }`;
 var FS_FLOW1 = `#version 300 es
 precision highp float; in vec2 vUV; in vec4 vCol;
-uniform sampler2D uMain, uColor, uDst, uDis, uDisMask, uMask1, uMask2;
-uniform float uTime, uK, uVClamp, uChR, uM1Soft, uM1Rev, uM2Soft, uM2Rev, uDisRev, uDisC, uDisSoft, uMainValue;
-uniform vec2 uMainRot, uColRot, uM1Rot, uMainFlow, uDstFlow, uDisFlow, uAxis, uDisAxis;
-uniform vec4 uMainTO, uDstTO, uColST, uM1ST, uM2ST, uDisST, uDisMaskST; out vec4 o;
+uniform sampler2D uMain, uColor, uDst, uDis, uDisMask, uMask1, uMask2, uMain2;
+uniform float uTime, uK, uVClamp, uChR, uM1Soft, uM1Rev, uM2Soft, uM2Rev, uDisRev, uDisC, uDisSoft, uMainValue, uTex2I, uTex2Pow;
+uniform vec2 uMainRot, uColRot, uM1Rot, uMainFlow, uDstFlow, uDisFlow, uAxis, uDisAxis, uTex2Flow;
+uniform vec4 uMainTO, uDstTO, uColST, uM1ST, uM2ST, uDisST, uDisMaskST, uTex2TO, uTex2ST; out vec4 o;
 vec2 rot(vec2 p, vec2 r){ return vec2(r.x * p.x + r.y * p.y, r.x * p.y - r.y * p.x) + (0.5 - vec2(r.x + r.y, r.x - r.y) * 0.5); }
 vec2 to(vec2 p, vec4 t){ return p * t.xy + ((t.zw - 0.5) * t.xy + 0.5); }
 vec2 sc(vec2 p, vec4 t){ return p * t.xy + (0.5 - 0.5 * t.xy); }
@@ -504,6 +589,12 @@ void main(){
   if (uVClamp > 0.5) q.y = clamp(q.y, 0.0, 1.0);
   vec4 m = texture(uMain, q);
   if (uChR > 0.5) m = m.rrrr;
+  // \u7B2C\u4E8C\u5F35\u4E3B\u8CBC\u5716\uFF0810-29 \u88DC\uFF0Cshaders/Flow1/ \u7684\u53CD\u7D44\u8B6F\uFF09\uFF1A\u5F37\u5EA6 0 \u6642 \uFF0B0\uFF0C\u756B\u9762\u9010\u4F4D\u5143\u4E0D\u8B8A
+  if (uTex2I != 0.0) {
+    vec2 q2 = rot(vUV * uTex2ST.xy + uTex2ST.zw, uMainRot) + uTime * uTex2Flow + uTex2TO.zw;
+    q2 += uK * (d - q2) * uAxis;
+    m += uTex2I * pow(texture(uMain2, sc(q2, uTex2TO)).r, uTex2Pow) * m.a;
+  }
   m.a = clamp(m.a, 0.0, 1.0);
   m *= mask(texture(uMask1, rot(vUV * uM1ST.xy + uM1ST.zw, uM1Rot)), uM1Soft, uM1Rev);
   m *= mask(texture(uMask2, vUV * uM2ST.xy + uM2ST.zw), uM2Soft, uM2Rev);
@@ -584,6 +675,44 @@ void main(){
   s = s * s * (3.0 - 2.0 * s) * 0.5 * c.a * uShine.w;
   o = vec4(c.rgb + s * (1.0 + uGloss * (c.rgb * 7.0 - 1.0)), c.a);
 }`;
+var FS_SPEEDLINE = `#version 300 es
+precision highp float; in vec2 vUV; in vec4 vCol;
+uniform sampler2D uMask; uniform float uTime, uRot, uU, uV, uSpeed, uDensity, uSimple, uC1, uC2, uCW, uCS, uRadial, uInner, uOuter, uBlur, uCustom;
+uniform vec2 uOff; uniform vec4 uST; out vec4 o;
+float m289(float x){ float k = x >= -x ? 289.0 : -289.0; return fract(x * (1.0 / k)) * k; }
+vec2 gdir(vec2 p){
+  p = vec2(m289(p.x), m289(p.y));
+  float x = m289((34.0 * p.x + 1.0) * p.x) + p.y;
+  x = m289((34.0 * x + 1.0) * x);
+  x = fract(x / 41.0) * 2.0 - 1.0;
+  return normalize(vec2(x - floor(x + 0.5), abs(x) - 0.5));
+}
+float gnoise(vec2 p){
+  vec2 ip = floor(p), fp = fract(p);
+  float d00 = dot(gdir(ip), fp), d01 = dot(gdir(ip + vec2(0.0, 1.0)), fp - vec2(0.0, 1.0));
+  float d10 = dot(gdir(ip + vec2(1.0, 0.0)), fp - vec2(1.0, 0.0)), d11 = dot(gdir(ip + vec2(1.0, 1.0)), fp - vec2(1.0, 1.0));
+  fp = fp * fp * fp * (fp * (fp * 6.0 - 15.0) + 10.0);
+  return mix(mix(d00, d01, fp.y), mix(d10, d11, fp.y), fp.x);
+}
+float rnd(vec2 c){ return fract(sin(dot(c, vec2(12.9898, 78.233))) * 43758.5453); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(rnd(i), rnd(i + vec2(1.0, 0.0)), f.x), mix(rnd(i + vec2(0.0, 1.0)), rnd(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+void main(){
+  vec2 uv = vUV * uST.xy + uST.zw, p = uv - 0.5;
+  float c = cos(uRot), s = sin(uRot);
+  vec2 r = vec2(c * p.x + s * p.y, c * p.y - s * p.x) + 0.5, q = r - uOff;
+  float rad = 2.0 * length(q) * uU;
+  vec2 P = vec2(rad - uSpeed * uTime, atan(q.x, q.y) * 0.159236 * uV);
+  float n = uSimple > 0.5 ? vnoise(P * 10.0) * 0.125 + vnoise(P * 5.0) * 0.25 + vnoise(P * 2.5) * 0.5 : gnoise(P * 10.0) + 0.5;
+  n = n > 0.0 ? min(exp(log(n) * uDensity), 1.0) : n < 0.0 ? 1.0 : 0.0;
+  float x = uRadial > 0.5 ? rad : r.x;
+  float k = mix(x * uC1, (1.0 - x) * uC2, uCW) + uCS;
+  vec2 e = 1.0 - smoothstep(vec2(uOuter, uInner) - uBlur, vec2(uOuter, uInner) + uBlur, vec2(length(uv - uOff)));
+  float a = uCustom > 0.5 ? texture(uMask, uv).r : e.x - e.y;
+  o = vec4(k * vCol.rgb * n, a * vCol.a);
+}`;
 var FLOATS = 8;
 var FULL_UV = [0, 0, 1, 1];
 async function startGachaFx(canvas, data, opts) {
@@ -606,7 +735,7 @@ async function startGachaFx(canvas, data, opts) {
     if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p) ?? "shader \u9023\u7D50\u5931\u6557");
     return p;
   };
-  const P_BG = program(FS_BG), P_PT = program(FS_PARTICLE), P_FLOW = program(FS_FLOW), P_FLOW1 = program(FS_FLOW1), P_GEN = program(FS_GENERAL), P_UIC = program(FS_UI_COMMON), P_SHINY = program(FS_SHINY);
+  const P_BG = program(FS_BG), P_PT = program(FS_PARTICLE), P_FLOW = program(FS_FLOW), P_FLOW1 = program(FS_FLOW1), P_GEN = program(FS_GENERAL), P_UIC = program(FS_UI_COMMON), P_SHINY = program(FS_SHINY), P_SL = program(FS_SPEEDLINE);
   const U = (p, names) => Object.fromEntries(names.map((n) => [n, gl.getUniformLocation(p, n)]));
   const uBg = U(P_BG, ["uView", "uTex"]);
   const uPt = U(P_PT, ["uView", "uTex", "uStr", "uStrA", "uRot", "uTint"]);
@@ -635,7 +764,7 @@ async function startGachaFx(canvas, data, opts) {
     "uMaskDst",
     "uDstAxis"
   ]);
-  const FLOW1_TEX = ["uMain", "uColor", "uDst", "uDis", "uDisMask", "uMask1", "uMask2"];
+  const FLOW1_TEX = ["uMain", "uColor", "uDst", "uDis", "uDisMask", "uMask1", "uMask2", "uMain2"];
   const uF1 = U(P_FLOW1, [
     "uView",
     ...FLOW1_TEX,
@@ -665,7 +794,12 @@ async function startGachaFx(canvas, data, opts) {
     "uM1ST",
     "uM2ST",
     "uDisST",
-    "uDisMaskST"
+    "uDisMaskST",
+    "uTex2I",
+    "uTex2Pow",
+    "uTex2Flow",
+    "uTex2TO",
+    "uTex2ST"
   ]);
   const GEN_TEX = ["uNoise", "uMain", "uEdge", "uMask1", "uSoft", "uMask2"];
   const uGen = U(P_GEN, [
@@ -705,6 +839,28 @@ async function startGachaFx(canvas, data, opts) {
     "uMainColor"
   ]);
   const uSh = U(P_SHINY, ["uView", "uTex", "uShine", "uCorner", "uGloss"]);
+  const uSl = U(P_SL, [
+    "uView",
+    "uMask",
+    "uTime",
+    "uRot",
+    "uU",
+    "uV",
+    "uSpeed",
+    "uDensity",
+    "uSimple",
+    "uC1",
+    "uC2",
+    "uCW",
+    "uCS",
+    "uRadial",
+    "uInner",
+    "uOuter",
+    "uBlur",
+    "uCustom",
+    "uOff",
+    "uST"
+  ]);
   const UIC_TEX = ["uDist", "uMain", "uAlpha", "uAlpha3", "uGrad"];
   const uUic = U(P_UIC, [
     "uView",
@@ -757,6 +913,23 @@ async function startGachaFx(canvas, data, opts) {
       verts[vn++] = c[3];
     }
   }
+  function quadUV(P, T, c) {
+    if (vn + FLOATS * 6 > verts.length) {
+      const nv = new Float32Array(verts.length * 2);
+      nv.set(verts);
+      verts = nv;
+    }
+    for (const k of [0, 1, 2, 0, 2, 3]) {
+      verts[vn++] = P[2 * k];
+      verts[vn++] = P[2 * k + 1];
+      verts[vn++] = T[2 * k];
+      verts[vn++] = T[2 * k + 1];
+      verts[vn++] = c[0];
+      verts[vn++] = c[1];
+      verts[vn++] = c[2];
+      verts[vn++] = c[3];
+    }
+  }
   function flush() {
     if (!vn) return;
     gl.bufferData(gl.ARRAY_BUFFER, verts.subarray(0, vn), gl.DYNAMIC_DRAW);
@@ -800,7 +973,8 @@ async function startGachaFx(canvas, data, opts) {
   const cache = /* @__PURE__ */ new Map();
   const fxTex = (name, repeat = false) => {
     const key = `${name}#${repeat ? "r" : "c"}`;
-    if (!cache.has(key)) cache.set(key, loadTex(opts.texUrl(name), repeat));
+    const url = name.endsWith(".webp") ? opts.texUrl(name.slice(0, -5)).replace(/\.png(?=$|[?#])/, ".webp") : opts.texUrl(name);
+    if (!cache.has(key)) cache.set(key, loadTex(url, repeat));
     return cache.get(key);
   };
   const perlin = makePerlin(Math.random);
@@ -813,14 +987,15 @@ async function startGachaFx(canvas, data, opts) {
     dst: p.disturbTex ? await fxTex(p.disturbTex, true) : T_BLACK,
     mask: p.mask ? await fxTex(p.mask.tex, p.mask.repeat) : T_WHITE
   });
-  const flow1Tex = (p) => Promise.all([p.main, p.colorTex, p.disturb?.tex, p.dissolve?.tex, p.dissolve?.mask, p.mask1?.tex, p.mask2?.tex].map(f1Tex));
+  const flow1Tex = (p) => Promise.all([p.main, p.colorTex, p.disturb?.tex, p.dissolve?.tex, p.dissolve?.mask, p.mask1?.tex, p.mask2?.tex, p.main2?.tex].map(f1Tex));
+  const uiCommonTex = (c) => Promise.all([c.distort?.tex, c.main, c.alpha?.tex, c.alpha3?.tex, c.grad?.tex].map(f1Tex));
   const [T_BG, drawList, flowTex] = await Promise.all([
     loadTex(opts.background, false),
     Promise.all(order.map(async (s) => {
       const base = await baseEntry(s);
       return s.sys.trail ? { ...base, trail: await fxTex(s.sys.trail.material.tex) } : base;
     })),
-    Promise.all(data.flows.map(async (f) => isImage(f) ? { kind: "image", f, tex: await fxTex(f.tex) } : isFlow1(f) ? { kind: "flow1", f, tex: await flow1Tex(f) } : { kind: "common", f, ...await commonFlowTex(f) }))
+    Promise.all(data.flows.map(async (f) => isImage(f) ? { kind: "image", f, tex: await fxTex(f.tex), ...f.seq ? { seq: await Promise.all(f.seq.sheets.map((x) => fxTex(x))) } : {} } : isSpeedLine(f) ? { kind: "speedLine", f, tex: f.maskTex ? await fxTex(f.maskTex) : T_WHITE } : isUICommon(f) ? { kind: "uiCommon", f, tex: await uiCommonTex(f) } : isFlow1(f) ? { kind: "flow1", f, tex: await flow1Tex(f) } : { kind: "common", f, ...await commonFlowTex(f) }))
   ]);
   async function baseEntry(s) {
     const M = s.sys.material;
@@ -832,7 +1007,7 @@ async function startGachaFx(canvas, data, opts) {
     }
     if (M.uiCommon) {
       const c = M.uiCommon;
-      return { sim: s, kind: "uiCommon", tex: await Promise.all([c.distort?.tex, c.main, c.alpha?.tex, c.alpha3?.tex, c.grad?.tex].map(f1Tex)) };
+      return { sim: s, kind: "uiCommon", tex: await uiCommonTex(c) };
     }
     return { sim: s, kind: "plain", tex: await fxTex(M.tex) };
   }
@@ -849,7 +1024,7 @@ async function startGachaFx(canvas, data, opts) {
     gl.scissor(x0, y0, Math.max(0, x1 - x0), Math.max(0, y1 - y0));
   }
   function drawParticles(e, view, time2) {
-    const sim = e.sim, S = sim.sys, C = S.colorOverLife, Z = S.sizeOverLife, UV = S.uv;
+    const sim = e.sim, S = sim.sys, C = S.colorOverLife, Z = S.sizeOverLife, ZS = S.sizeBySpeed, UV = S.uv;
     const tint = e.kind === "flow1" || e.kind === "general" ? S.material.tint : void 0;
     scissor(S.clip);
     if (S.render.mode !== 5) {
@@ -896,14 +1071,20 @@ async function startGachaFx(canvas, data, opts) {
           sx *= k;
           sy *= Z.y ? evalMinMax(Z.y, a, q.r[1]) : k;
         }
+        const sp = ZS || UV?.timeMode === 1 ? Math.hypot(...q.vel3) : 0;
+        if (ZS) {
+          const t = speedT(ZS.range, sp), k = evalMinMax(ZS.x, t, q.r[1]);
+          sx *= k;
+          sy *= ZS.y ? evalMinMax(ZS.y, t, q.r[1]) : k;
+        }
         sx = Math.min(sx * UNIT, maxPx);
         sy = Math.min(sy * UNIT, maxPx);
         const cx = sim.origin[0] + q.pos[0] * UNIT, cy = sim.origin[1] + q.pos[1] * UNIT;
-        const uv = UV && q.uvr ? uvRect(UV, uvFrame(UV, q.age, q.life, q.uvr)) : FULL_UV;
+        const uv = UV && q.uvr ? uvRect(UV, uvFrame(UV, q.age, q.life, q.uvr, sp)) : FULL_UV;
         if (S.render.mode === 1) {
-          const vx = q.vel3[0], vy = q.vel3[1], sp = Math.hypot(vx, vy);
-          const dx = sp ? vx / sp : 1, dy = sp ? vy / sp : 0;
-          const raw = opts.streakSpeedBySize === false ? sx * S.render.lengthScale + sp * UNIT * S.render.velocityScale : sx * (S.render.lengthScale + sp * S.render.velocityScale);
+          const vx = q.vel3[0], vy = q.vel3[1], sp2 = Math.hypot(vx, vy);
+          const dx = sp2 ? vx / sp2 : 1, dy = sp2 ? vy / sp2 : 0;
+          const raw = opts.streakSpeedBySize === false ? sx * S.render.lengthScale + sp2 * UNIT * S.render.velocityScale : sx * (S.render.lengthScale + sp2 * S.render.velocityScale);
           const len = Math.min(raw, maxPx * 2) * (opts.streakLength ?? 1);
           const w = sx / 2 * (opts.streakWidth ?? 1);
           const tx = cx - dx * len, ty = cy - dy * len, nx = -dy * w, ny = dx * w;
@@ -949,7 +1130,7 @@ async function startGachaFx(canvas, data, opts) {
         const g = evalMinMaxGradient(C, a, q.r[0]);
         pc = [pc[0] * g[0], pc[1] * g[1], pc[2] * g[2], pc[3] * g[3]];
       }
-      const size = q.size * (Z ? evalMinMax(Z.x, a, q.r[1]) : 1);
+      const size = q.size * (Z ? evalMinMax(Z.x, a, q.r[1]) : 1) * (S.sizeBySpeed ? evalMinMax(S.sizeBySpeed.x, speedT(S.sizeBySpeed.range, Math.hypot(...q.vel3)), q.r[1]) : 1);
       const lc = evalMinMaxGradient(T.colorOverLifetime, a, tr.r);
       const P = [];
       const O = sim.origin;
@@ -981,24 +1162,69 @@ async function startGachaFx(canvas, data, opts) {
     }
     flush();
   }
-  const QBUF = [0, 0, 0, 0, 0, 0], ABUF = [0], VBUF = [0, 0, 0, 0], EBUF = [0, 0, 0, 0, 0, 0];
+  const QBUF = [0, 0, 0, 0, 0, 0], ABUF = [0], VBUF = [0, 0, 0, 0], EBUF = [0, 0, 0, 0, 0, 0], SBUF = [0, 0, 0, 0, 0, 0, 0, 0];
   function track(arr, stride, len, time2, out) {
     const n = arr.length / stride - 1, u = time2 % len / len * n, k = Math.min(Math.floor(u), n - 1), w = u - k;
     for (let j = 0; j < stride; j++) out[j] = arr[k * stride + j] * (1 - w) + arr[(k + 1) * stride + j] * w;
     return out;
   }
-  function flowQuad(f, time2) {
+  function layerCorners(f, time2) {
+    const [x, y] = f.pos, hw = f.size[0] / 2, hh = f.size[1] / 2, A = f.anim, P = SBUF;
+    if (A?.quad || f.quad) {
+      const q = A?.quad ? track(A.quad, 6, A.len, time2, QBUF) : f.quad;
+      P[0] = q[0];
+      P[1] = q[1];
+      P[2] = q[2];
+      P[3] = q[3];
+      P[4] = q[2] + q[4] - q[0];
+      P[5] = q[3] + q[5] - q[1];
+      P[6] = q[4];
+      P[7] = q[5];
+    } else {
+      const co = Math.cos(f.rot ?? 0), s = Math.sin(f.rot ?? 0);
+      [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].forEach(([dx, dy], k) => {
+        P[2 * k] = x + dx * co - dy * s;
+        P[2 * k + 1] = y + dx * s + dy * co;
+      });
+    }
+    if (f.spin) {
+      const [sx, sy] = f.spin.c, a = f.spin.w * time2, co = Math.cos(a), si = Math.sin(a);
+      for (let k = 0; k < 8; k += 2) {
+        const dx = P[k] - sx, dy = P[k + 1] - sy;
+        P[k] = sx + dx * co - dy * si;
+        P[k + 1] = sy + dx * si + dy * co;
+      }
+    }
+    return P;
+  }
+  const FP = [0, 0, 0, 0, 0, 0, 0, 0], FT = [0, 0, 0, 0, 0, 0, 0, 0];
+  function flowQuad(f, time2, uv = FULL_UV) {
     const [x, y] = f.pos, hw = f.size[0] / 2, hh = f.size[1] / 2;
     const A = f.anim;
     const c = A?.alpha ? [f.color[0], f.color[1], f.color[2], track(A.alpha, 1, A.len, time2, ABUF)[0]] : f.color;
-    if (A?.quad || f.quad) {
+    if (f.fill) {
+      const P = layerCorners(f, time2), amt = A?.fill ? track(A.fill, 1, A.len, time2, ABUF)[0] : f.fill.amount;
+      for (const q of fillQuads(f.fill, amt)) {
+        for (let k = 0; k < 8; k += 2) {
+          const nx = q[k], ny = q[k + 1];
+          FP[k] = P[0] + nx * (P[2] - P[0]) + ny * (P[6] - P[0]);
+          FP[k + 1] = P[1] + nx * (P[3] - P[1]) + ny * (P[7] - P[1]);
+          FT[k] = uv[0] + nx * (uv[2] - uv[0]);
+          FT[k + 1] = uv[1] + ny * (uv[3] - uv[1]);
+        }
+        quadUV(FP, FT, c);
+      }
+    } else if (f.spin) {
+      const P = layerCorners(f, time2);
+      quad(P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7], c, uv);
+    } else if (A?.quad || f.quad) {
       const q = A?.quad ? track(A.quad, 6, A.len, time2, QBUF) : f.quad;
-      quad(q[0], q[1], q[2], q[3], q[2] + q[4] - q[0], q[3] + q[5] - q[1], q[4], q[5], c);
+      quad(q[0], q[1], q[2], q[3], q[2] + q[4] - q[0], q[3] + q[5] - q[1], q[4], q[5], c, uv);
     } else if (f.rot) {
       const co = Math.cos(f.rot), s = Math.sin(f.rot);
       const P = [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].map(([dx, dy]) => [x + dx * co - dy * s, y + dx * s + dy * co]);
-      quad(P[0][0], P[0][1], P[1][0], P[1][1], P[2][0], P[2][1], P[3][0], P[3][1], c);
-    } else quad(x - hw, y - hh, x + hw, y - hh, x + hw, y + hh, x - hw, y + hh, c);
+      quad(P[0][0], P[0][1], P[1][0], P[1][1], P[2][0], P[2][1], P[3][0], P[3][1], c, uv);
+    } else quad(x - hw, y - hh, x + hw, y - hh, x + hw, y + hh, x - hw, y + hh, c, uv);
     flush();
   }
   function drawFlow1(f, tex, time2) {
@@ -1007,6 +1233,7 @@ async function startGachaFx(canvas, data, opts) {
     flow1UniformsSet(f, tex, time2);
     const A = f.anim;
     if (A?.mask1ST) gl.uniform4fv(uF1.uM1ST, track(A.mask1ST, 4, A.len, time2, VBUF));
+    if (A?.dissolveValue) gl.uniform1f(uF1.uDisC, 2 * (0.55 - 1.05 * track(A.dissolveValue, 1, A.len, time2, ABUF)[0]));
     flowQuad(f, time2);
     gl.activeTexture(gl.TEXTURE0);
   }
@@ -1113,6 +1340,11 @@ async function startGachaFx(canvas, data, opts) {
     gl.uniform4fv(uF1.uM2ST, u.mask2ST);
     gl.uniform4fv(uF1.uDisST, u.dissolveST);
     gl.uniform4fv(uF1.uDisMaskST, u.dissolveMaskST);
+    gl.uniform1f(uF1.uTex2I, u.tex2I);
+    gl.uniform1f(uF1.uTex2Pow, u.tex2Pow);
+    gl.uniform2fv(uF1.uTex2Flow, u.tex2Flow);
+    gl.uniform4fv(uF1.uTex2TO, u.tex2TO);
+    gl.uniform4fv(uF1.uTex2ST, u.tex2ST);
   }
   function drawFlow(f, t, time2) {
     scissor(f.clip);
@@ -1155,8 +1387,17 @@ async function startGachaFx(canvas, data, opts) {
     gl.uniform1f(uFl.uMaskRev, K?.revert ? 1 : 0);
     gl.uniform1f(uFl.uMaskDst, K?.disturbed ? 1 : 0);
   }
-  function drawImage(f, tex, time2) {
+  function drawImage(f, tex, time2, seq) {
     scissor(f.clip);
+    let uv = FULL_UV;
+    if (f.seq && seq) {
+      const S = f.seq, p = time2 % S.len, per = S.cols * S.rows;
+      let k = S.keys[1];
+      for (let j = 2; j < S.keys.length && S.keys[j] <= p; j += 2) k = S.keys[j + 1];
+      tex = seq[Math.floor(k / per)];
+      const c = k % per, du = 1 / S.cols, dv = 1 / S.rows, u0 = c % S.cols * du, v0 = 1 - (Math.floor(c / S.cols) + 1) * dv;
+      uv = [u0, v0, u0 + du, v0 + dv];
+    }
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.uniform1i(uPt.uTex, 0);
@@ -1165,6 +1406,39 @@ async function startGachaFx(canvas, data, opts) {
     gl.uniform1f(uPt.uRot, 0);
     gl.uniform4fv(uPt.uTint, f.tint ?? WHITE2);
     gl.blendFunc(gl.SRC_ALPHA, f.blend === "alpha" ? gl.ONE_MINUS_SRC_ALPHA : gl.ONE);
+    flowQuad(f, time2, uv);
+  }
+  function drawUICommon(f, tex, time2) {
+    scissor(f.clip);
+    uiCommonUniformsSet(f, tex, time2);
+    gl.blendFunc(gl.SRC_ALPHA, f.blend === "alpha" ? gl.ONE_MINUS_SRC_ALPHA : gl.ONE);
+    flowQuad(f, time2);
+    gl.activeTexture(gl.TEXTURE0);
+  }
+  function drawSpeedLine(f, tex, time2) {
+    scissor(f.clip);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.uniform1i(uSl.uMask, 0);
+    gl.uniform1f(uSl.uTime, time2);
+    gl.uniform1f(uSl.uRot, f.rotate ?? 0);
+    gl.uniform1f(uSl.uU, f.u);
+    gl.uniform1f(uSl.uV, f.v);
+    gl.uniform1f(uSl.uSpeed, f.speed);
+    gl.uniform1f(uSl.uDensity, f.density);
+    gl.uniform1f(uSl.uSimple, f.simpleNoise ? 1 : 0);
+    gl.uniform1f(uSl.uC1, f.color1);
+    gl.uniform1f(uSl.uC2, f.color2);
+    gl.uniform1f(uSl.uCW, f.colorWeight);
+    gl.uniform1f(uSl.uCS, f.colorScale);
+    gl.uniform1f(uSl.uRadial, f.radial ? 1 : 0);
+    gl.uniform1f(uSl.uInner, f.maskInner);
+    gl.uniform1f(uSl.uOuter, f.maskOuter);
+    gl.uniform1f(uSl.uBlur, f.maskBlur);
+    gl.uniform1f(uSl.uCustom, f.maskTex ? 1 : 0);
+    gl.uniform2fv(uSl.uOff, f.offset);
+    gl.uniform4fv(uSl.uST, f.st ?? [1, 1, 0, 0]);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
     flowQuad(f, time2);
   }
   function drawShiny(f, tex, time2) {
@@ -1175,7 +1449,7 @@ async function startGachaFx(canvas, data, opts) {
     gl.uniform1i(uSh.uTex, 0);
     const factor = A?.shiny ? track(A.shiny, 1, A.len, time2, ABUF)[0] : S.factor;
     gl.uniform4f(uSh.uShine, factor, S.width, S.softness, S.brightness);
-    gl.uniform4fv(uSh.uCorner, S.corners);
+    gl.uniform4fv(uSh.uCorner, A?.shinyCorners ? track(A.shinyCorners, 4, A.len, time2, VBUF) : S.corners);
     gl.uniform1f(uSh.uGloss, S.gloss);
     gl.blendFunc(gl.SRC_ALPHA, f.blend === "alpha" ? gl.ONE_MINUS_SRC_ALPHA : gl.ONE);
     flowQuad(f, time2);
@@ -1186,10 +1460,18 @@ async function startGachaFx(canvas, data, opts) {
         gl.useProgram(P_SHINY);
         gl.uniform4f(uSh.uView, ...view);
         drawShiny(e.f, e.tex, time2);
+      } else if (e.kind === "uiCommon") {
+        gl.useProgram(P_UIC);
+        gl.uniform4f(uUic.uView, ...view);
+        drawUICommon(e.f, e.tex, time2);
+      } else if (e.kind === "speedLine") {
+        gl.useProgram(P_SL);
+        gl.uniform4f(uSl.uView, ...view);
+        drawSpeedLine(e.f, e.tex, time2);
       } else if (e.kind === "image") {
         gl.useProgram(P_PT);
         gl.uniform4f(uPt.uView, ...view);
-        drawImage(e.f, e.tex, time2);
+        drawImage(e.f, e.tex, time2, e.seq);
       } else if (e.kind === "flow1") {
         gl.useProgram(P_FLOW1);
         gl.uniform4f(uF1.uView, ...view);
@@ -1272,7 +1554,7 @@ async function startGachaFx(canvas, data, opts) {
       for (const t of textures) gl.deleteTexture(t);
       gl.deleteBuffer(vbo);
       gl.deleteVertexArray(vao);
-      for (const p of [P_BG, P_PT, P_FLOW, P_FLOW1, P_GEN, P_UIC, P_SHINY]) gl.deleteProgram(p);
+      for (const p of [P_BG, P_PT, P_FLOW, P_FLOW1, P_GEN, P_UIC, P_SHINY, P_SL]) gl.deleteProgram(p);
       gl.getExtension("WEBGL_lose_context")?.loseContext();
     }
   };
