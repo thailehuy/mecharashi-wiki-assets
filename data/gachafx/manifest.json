@@ -429,6 +429,17 @@
   "notes": 1
  },
  {
+  "wap": "2058",
+  "client": "cn",
+  "poolKey": "Mockingbird",
+  "prefab": "WapGachaMockingbirdPoolItemPrefab",
+  "systems": 34,
+  "flows": 0,
+  "card": "cards/2058.webp",
+  "warnings": [],
+  "notes": 1
+ },
+ {
   "wap": "2060",
   "client": "cn",
   "poolKey": "Demiurge",
@@ -678,6 +689,17 @@
   "systems": 26,
   "flows": 0,
   "card": "cards/3051.webp",
+  "warnings": [],
+  "notes": 1
+ },
+ {
+  "wap": "3052",
+  "client": "cn",
+  "poolKey": "Jormungandr",
+  "prefab": "WapGachaJormungandrPoolItemPrefab",
+  "systems": 40,
+  "flows": 0,
+  "card": "cards/3052.webp",
   "warnings": [],
   "notes": 1
  },

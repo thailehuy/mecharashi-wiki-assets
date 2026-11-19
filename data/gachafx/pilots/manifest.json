@@ -691,5 +691,27 @@
   "card": "cards/10103187.webp",
   "warnings": [],
   "notes": 1
+ },
+ {
+  "id": "10103188",
+  "client": "cn",
+  "poolKey": "BlightbladeOphelia",
+  "prefab": "PilotGachaBlightbladeOpheliaItemPrefab",
+  "systems": 38,
+  "flows": 2,
+  "card": "cards/10103188.webp",
+  "warnings": [],
+  "notes": 1
+ },
+ {
+  "id": "10103189",
+  "client": "cn",
+  "poolKey": "EchoDiaz",
+  "prefab": "PilotGachaEchoDiazItemPrefab",
+  "systems": 26,
+  "flows": 0,
+  "card": "cards/10103189.webp",
+  "warnings": [],
+  "notes": 1
  }
 ]
