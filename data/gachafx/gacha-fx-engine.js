@@ -569,7 +569,7 @@ void main(){
 var FS_FLOW1 = `#version 300 es
 precision highp float; in vec2 vUV; in vec4 vCol;
 uniform sampler2D uMain, uColor, uDst, uDis, uDisMask, uMask1, uMask2, uMain2;
-uniform float uTime, uK, uVClamp, uChR, uM1Soft, uM1Rev, uM2Soft, uM2Rev, uDisRev, uDisC, uDisSoft, uMainValue, uTex2I, uTex2Pow;
+uniform float uTime, uK, uVClamp, uChR, uM1Soft, uM1Rev, uM2Soft, uM2Rev, uDisRev, uDisC, uDisSoft, uMainValue, uTex2I, uTex2Pow, uLin;
 uniform vec2 uMainRot, uColRot, uM1Rot, uMainFlow, uDstFlow, uDisFlow, uAxis, uDisAxis, uTex2Flow;
 uniform vec4 uMainTO, uDstTO, uColST, uM1ST, uM2ST, uDisST, uDisMaskST, uTex2TO, uTex2ST; out vec4 o;
 vec2 rot(vec2 p, vec2 r){ return vec2(r.x * p.x + r.y * p.y, r.x * p.y - r.y * p.x) + (0.5 - vec2(r.x + r.y, r.x - r.y) * 0.5); }
@@ -589,6 +589,8 @@ void main(){
   if (uVClamp > 0.5) q.y = clamp(q.y, 0.0, 1.0);
   vec4 m = texture(uMain, q);
   if (uChR > 0.5) m = m.rrrr;
+  // \u7DDA\u6027\u8FD1\u4F3C\uFF0811-20 \u88DC\uFF0C\u898B FxFlow1Params.linear\uFF09\uFF1A\u53EA\u6709 HDR _Color \u7684\u7C92\u5B50\u958B\uFF0C\u5176\u4ED6\u9010\u4F4D\u5143\u4E0D\u8B8A
+  if (uLin > 0.5) m = pow(m, vec4(2.2));
   // \u7B2C\u4E8C\u5F35\u4E3B\u8CBC\u5716\uFF0810-29 \u88DC\uFF0Cshaders/Flow1/ \u7684\u53CD\u7D44\u8B6F\uFF09\uFF1A\u5F37\u5EA6 0 \u6642 \uFF0B0\uFF0C\u756B\u9762\u9010\u4F4D\u5143\u4E0D\u8B8A
   if (uTex2I != 0.0) {
     vec2 q2 = rot(vUV * uTex2ST.xy + uTex2ST.zw, uMainRot) + uTime * uTex2Flow + uTex2TO.zw;
@@ -605,7 +607,8 @@ void main(){
   if (uDisRev > 0.5) n = 1.0 - n;
   float x = clamp((dm.r * dm.a * n + uDisC - uDisSoft) / (1.0 - 2.0 * uDisSoft), 0.0, 1.0);
   m *= min(x * x * (3.0 - 2.0 * x), 1.0);
-  o = m * texture(uColor, rot(vUV * uColST.xy + uColST.zw, uColRot)) * vCol * uMainValue;
+  vec4 vc = uLin > 0.5 ? vec4(pow(vCol.rgb / max(vec3(1.0), vCol.rgb), vec3(2.2)) * max(vec3(1.0), vCol.rgb), vCol.a) : vCol;
+  o = m * texture(uColor, rot(vUV * uColST.xy + uColST.zw, uColRot)) * vc * uMainValue;
 }`;
 var FS_GENERAL = `#version 300 es
 precision highp float; in vec2 vUV; in vec4 vCol;
@@ -799,7 +802,8 @@ async function startGachaFx(canvas, data, opts) {
     "uTex2Pow",
     "uTex2Flow",
     "uTex2TO",
-    "uTex2ST"
+    "uTex2ST",
+    "uLin"
   ]);
   const GEN_TEX = ["uNoise", "uMain", "uEdge", "uMask1", "uSoft", "uMask2"];
   const uGen = U(P_GEN, [
@@ -1321,6 +1325,7 @@ async function startGachaFx(canvas, data, opts) {
     gl.uniform1f(uF1.uK, u.k);
     gl.uniform1f(uF1.uVClamp, u.vClamp);
     gl.uniform1f(uF1.uChR, u.channelR);
+    gl.uniform1f(uF1.uLin, f.linear ? 1 : 0);
     gl.uniform1f(uF1.uM1Soft, u.mask1Soft);
     gl.uniform1f(uF1.uM1Rev, u.mask1Rev);
     gl.uniform1f(uF1.uM2Soft, u.mask2Soft);
